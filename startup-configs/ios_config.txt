@@ -1,0 +1,6 @@
+hostname ZTP-Cisco
+interface GigabitEthernet0/0
+ ip address dhcp
+ no shutdown
+!
+enable secret cisco
