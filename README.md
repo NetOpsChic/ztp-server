@@ -20,7 +20,7 @@ Ensure the following are installed on your system before running the ZTP server:
 
 1. **Clone the repository**:
    ```sh
-   git clone https://github.com/your-repo/ztp-server.git
+   git clone https://github.com/netopschic/ztp-server.git
    cd ztp-server
    ```
 
