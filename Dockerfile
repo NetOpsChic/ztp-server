@@ -41,5 +41,8 @@ EXPOSE 67/udp 69/udp 80/tcp
 # Add NET_ADMIN Capability to Ensure DHCP Can Bind to Ports
 RUN apt install -y libcap2-bin && setcap CAP_NET_ADMIN+ep /usr/sbin/dhcpd
 
-# Run startup script on container boot
-ENTRYPOINT ["/usr/local/bin/startup.sh"]
+# ✅ **Create volume for Ansible inventory**
+VOLUME ["/ansible_inventory"]
+
+# ✅ **Run startup script on container boot**
+CMD ["/bin/bash", "/usr/local/bin/startup.sh"]

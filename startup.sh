@@ -76,14 +76,5 @@ if ! grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" /ansible_inventory/hosts; then
     exit 1
 fi
 
-# ✅ Copy inventory to /etc/ansible/hosts
-echo "🚀 Copying Ansible inventory to /etc/ansible/hosts..."
-mkdir -p /etc/ansible
-cp /ansible_inventory/hosts /etc/ansible/hosts || echo "❌ Failed to copy inventory to /etc/ansible/hosts"
-
-# ✅ Sync inventory to the local machine
-echo "🚀 Syncing inventory to local machine..."
-cp /ansible_inventory/hosts /mnt/ansible_inventory/hosts || echo "❌ Failed to sync inventory to local machine."
-
 echo "✅ ZTP Server is running!"
 tail -f /dev/null
