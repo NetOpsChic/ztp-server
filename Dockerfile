@@ -1,15 +1,23 @@
-# Use Ubuntu as the base image
 FROM ubuntu:latest
 
-# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DHCP_INTERFACE=eth0
-ENV LEASES_FILE=/var/lib/dhcp/dhcpd.leases
+ENV LEASES_FILE=/var/lib/kea/dhcp4.leases
 ENV INVENTORY_DIR=/ansible_inventory
+ENV TFTP_DIR=/var/lib/tftpboot
 
-# Install necessary packages
+# Default Environment Variables for Dynamic Configuration
+ENV ZTP_IP=192.168.100.50
+ENV SUBNET=192.168.100.0
+ENV NETMASK=255.255.255.0
+ENV RANGE_START=192.168.100.100
+ENV RANGE_END=192.168.100.200
+ENV ROUTER_IP=192.168.100.1
+ENV DNS_SERVERS="8.8.8.8, 8.8.4.4"
+
+# Install required packages
 RUN apt update && apt install -y \
-    isc-dhcp-server \
+    kea-dhcp4-server \
     tftpd-hpa \
     nginx \
     python3 \
@@ -17,32 +25,37 @@ RUN apt update && apt install -y \
     ansible \
     net-tools \
     iproute2 \
+    libcap2-bin \
+    jq \
+    tcpdump \
+    systemd \
     && rm -rf /var/lib/apt/lists/*
 
-# Ensure DHCP lease file exists
-RUN mkdir -p /var/lib/dhcp && touch /var/lib/dhcp/dhcpd.leases && chmod 644 /var/lib/dhcp/dhcpd.leases
+# Ensure necessary directories exist
+RUN mkdir -p /var/lib/kea && touch /var/lib/kea/dhcp4.leases && chmod 644 /var/lib/kea/dhcp4.leases
+RUN mkdir -p ${TFTP_DIR} && chmod 777 ${TFTP_DIR}
+RUN mkdir -p /etc/kea  # Ensure /etc/kea exists
 
-# Copy required scripts and configurations
-COPY dhcpd.conf /etc/dhcp/dhcpd.conf
+# Copy necessary configuration files and scripts
 COPY vendor_detect.py /usr/local/bin/vendor_detect.py
 COPY generate_inventory.py /usr/local/bin/generate_inventory.py
 COPY startup.sh /usr/local/bin/startup.sh
+COPY startup-configs/arista_eos.conf ${TFTP_DIR}/arista_eos.conf
+COPY kea-dhcp4.conf /etc/kea/kea-dhcp4.conf  
 
 # Set execute permissions
 RUN chmod +x /usr/local/bin/vendor_detect.py /usr/local/bin/generate_inventory.py /usr/local/bin/startup.sh
+RUN chmod 644 ${TFTP_DIR}/arista_eos.conf /etc/kea/kea-dhcp4.conf  
 
-# Ensure DHCP binds to eth0 only
-RUN echo 'INTERFACESv4="eth0"' > /etc/default/isc-dhcp-server && \
-    echo 'INTERFACESv6=""' >> /etc/default/isc-dhcp-server
+# Ensure TFTP to run in foreground mode
+RUN echo 'TFTP_DIRECTORY="/var/lib/tftpboot"' > /etc/default/tftpd-hpa && \
+    echo 'TFTP_OPTIONS="--secure --create --foreground"' >> /etc/default/tftpd-hpa
 
 # Expose required ports
 EXPOSE 67/udp 69/udp 80/tcp
 
-# Add NET_ADMIN Capability to Ensure DHCP Can Bind to Ports
-RUN apt install -y libcap2-bin && setcap CAP_NET_ADMIN+ep /usr/sbin/dhcpd
-
-# ✅ **Create volume for Ansible inventory**
+# Create a volume for Ansible inventory
 VOLUME ["/ansible_inventory"]
 
-# ✅ **Run startup script on container boot**
+# ✅ Run startup script and keep container running
 CMD ["/bin/bash", "/usr/local/bin/startup.sh"]

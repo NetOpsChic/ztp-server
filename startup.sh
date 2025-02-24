@@ -1,58 +1,83 @@
 #!/bin/bash
 
-# Environment Variables
+# ✅ Environment Variables
 ZTP_IP=${ZTP_IP:-192.168.100.50}    
-ROUTER_IP=${ROUTER_IP:-192.168.100.1}  
 SUBNET=${SUBNET:-192.168.100.0}        
 NETMASK=${NETMASK:-255.255.255.0}      
 RANGE_START=${RANGE_START:-192.168.100.100}  
-RANGE_END=${RANGE_END:-192.168.100.200}      
+RANGE_END=${RANGE_END:-192.168.100.200}    
+ROUTER_IP=${ROUTER_IP:-192.168.100.1}
+DNS_SERVERS=${DNS_SERVERS:-"8.8.8.8, 8.8.4.4"}
 
-echo "🚀 Configuring DHCP Server..."
-sed -i "s|{{SUBNET}}|$SUBNET|g" /etc/dhcp/dhcpd.conf
-sed -i "s|{{NETMASK}}|$NETMASK|g" /etc/dhcp/dhcpd.conf
-sed -i "s|{{RANGE_START}}|$RANGE_START|g" /etc/dhcp/dhcpd.conf
-sed -i "s|{{RANGE_END}}|$RANGE_END|g" /etc/dhcp/dhcpd.conf
-sed -i "s|{{ROUTER_IP}}|$ROUTER_IP|g" /etc/dhcp/dhcpd.conf
-sed -i "s|{{ZTP_IP}}|$ZTP_IP|g" /etc/dhcp/dhcpd.conf
+# ✅ Configure Kea DHCP Server
+echo "🚀 Configuring Kea DHCP Server..."
+sed -i "s|{{SUBNET}}|$SUBNET|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|{{NETMASK}}|$NETMASK|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|{{RANGE_START}}|$RANGE_START|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|{{RANGE_END}}|$RANGE_END|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|{{ZTP_IP}}|$ZTP_IP|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|{{ROUTER_IP}}|$ROUTER_IP|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|{{DNS_SERVERS}}|$DNS_SERVERS|g" /etc/kea/kea-dhcp4.conf
 
+# ✅ Assign static IP to eth0
 echo "🚀 Assigning static IP to eth0 - ZTP IP: $ZTP_IP/24"
-ip addr add "$ZTP_IP/24" dev eth0
+ip addr add "$ZTP_IP/24" dev eth0 || echo "⚠️ Failed to assign static IP"
 ip link set eth0 up
 
-echo "🚀 Stopping any running DHCP instance..."
-pkill dhcpd || echo "No running DHCP found."
+# ✅ Ensure required directories for Kea logs and PID files exist
+echo "🚀 Ensuring Kea runtime directories exist..."
+mkdir -p /var/run/kea /run/kea /var/log/kea /var/lib/kea
+chmod 755 /var/run/kea /run/kea /var/log/kea /var/lib/kea
+chown -R kea:kea /var/run/kea /run/kea /var/log/kea /var/lib/kea
 
-echo "🚀 Starting DHCP Server..."
-dhcpd -cf /etc/dhcp/dhcpd.conf -lf /var/lib/dhcp/dhcpd.leases eth0 || { echo "❌ Failed to start DHCP"; exit 1; }
+# ✅ Ensure Kea lease file exists before starting
+LEASE_FILE="/var/lib/kea/kea-leases4.csv"
+echo "🚀 Ensuring Kea lease file exists: $LEASE_FILE"
+touch "$LEASE_FILE"
+chmod 644 "$LEASE_FILE"
 
+echo "🚀 Starting Kea DHCP Server in the background..."
+kea-dhcp4 -c /etc/kea/kea-dhcp4.conf > /var/log/kea/kea-dhcp4.log 2>&1 &
+sleep 2  # Give Kea some time to initialize
+
+# ✅ Ensure TFTP directory exists
+echo "🚀 Ensuring TFTP directory exists..."
+mkdir -p /var/lib/tftpboot
+chmod 777 /var/lib/tftpboot
+
+# ✅ Start TFTP Server
 echo "🚀 Starting TFTP Server..."
-service tftpd-hpa restart || { echo "❌ Failed to start TFTP"; exit 1; }
+service tftpd-hpa stop
+/usr/sbin/in.tftpd -l -s /var/lib/tftpboot --verbose --foreground &
 
+# ✅ Start Nginx
 echo "🚀 Starting Nginx..."
 service nginx restart || { echo "❌ Failed to start Nginx"; exit 1; }
 
-echo "🚀 Ensuring Ansible inventory directory exists..."
-mkdir -p /ansible_inventory
-mkdir -p /mnt/ansible_inventory  # Ensure sync path exists
+# ✅ Wait up to 5 minutes (300 seconds) for active DHCP leases
+echo "⏳ Waiting for active DHCP leases (max 5 minutes)..."
+MAX_WAIT_TIME=300  # Maximum wait time in seconds
+CHECK_INTERVAL=10  # Interval to check for leases
+TOTAL_WAIT=0
 
-# ✅ Ensure valid DHCP leases before proceeding
-echo "⏳ Waiting for active DHCP leases..."
-for attempt in $(seq 1 10); do
-    echo "🔍 Checking for active DHCP leases (Attempt $attempt/10)..."
-    cat /var/lib/dhcp/dhcpd.leases
-    if grep -q "binding state active" /var/lib/dhcp/dhcpd.leases; then
-        echo "✅ Active DHCP lease found! Proceeding with inventory generation."
+while [ $TOTAL_WAIT -lt $MAX_WAIT_TIME ]; do
+    echo "🔍 Checking for active DHCP leases... (Waited $TOTAL_WAIT seconds)"
+    cat /var/lib/kea/kea-leases4.csv
+
+    if grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" /var/lib/kea/kea-leases4.csv; then
+        echo "✅ Active DHCP lease found! Proceeding with vendor detection."
+
+        # ✅ Run vendor detection script for ZTP assignments
+        python3 /usr/local/bin/vendor_detect.py
+
         break
     fi
-    echo "⏳ No active DHCP leases yet, retrying in 5 sec..."
-    sleep 5
+
+    echo "⏳ No active DHCP leases yet, waiting $CHECK_INTERVAL seconds..."
+    sleep $CHECK_INTERVAL
+    TOTAL_WAIT=$((TOTAL_WAIT + CHECK_INTERVAL))
 done
 
-if ! grep -q "binding state active" /var/lib/dhcp/dhcpd.leases; then
-    echo "❌ No valid DHCP leases found after retries. Skipping inventory generation."
-    exit 1
-fi
 
 # ✅ Generate Ansible inventory with retries
 for attempt in {1..3}; do
@@ -71,10 +96,7 @@ for attempt in {1..3}; do
     sleep 5
 done
 
-if ! grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" /ansible_inventory/hosts; then
-    echo "❌ Ansible inventory generation failed after retries."
-    exit 1
-fi
-
 echo "✅ ZTP Server is running!"
+
+# Keep the container alive by tailing logs
 tail -f /dev/null

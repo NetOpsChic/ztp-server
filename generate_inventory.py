@@ -1,85 +1,86 @@
-import os
-import time
-import re
+#!/usr/bin/env python3
 
-# File paths
-LEASES_FILE = "/var/lib/dhcp/dhcpd.leases"
+import os
+import csv
+
+# ✅ Correct Kea lease file path (CSV, not JSON)
+KEA_LEASES_FILE = "/var/lib/kea/kea-leases4.csv"
 INVENTORY_FILE = "/ansible_inventory/hosts"
 
-# Vendor mappings
+# ✅ Vendor MAC prefixes
 VENDOR_MAP = {
     "00:1A:1E": "cisco",
     "00:1B:21": "juniper",
     "00:1C:73": "arista"
 }
 
+ROUTER_IP = "192.168.100.1"  # ✅ Exclude this IP
+
 def detect_vendor(mac_address):
-    """ Detect vendor based on MAC address OUI """
-    prefix = mac_address[:8].upper()
+    """Detect vendor based on MAC address OUI."""
+    prefix = mac_address[:8].upper()  # ✅ Extract OUI
     return VENDOR_MAP.get(prefix, "unknown")
 
-def parse_leases():
-    """ Parse the DHCP lease file and extract valid leases """
+def parse_kea_leases():
+    """Parse Kea DHCP lease CSV file and extract valid leases."""
     inventory = {}
-    found_leases = False
+    mac_ip_map = {}  # ✅ Track assigned IPs per MAC
 
-    if not os.path.exists(LEASES_FILE):
-        print(f"❌ Error: DHCP leases file not found: {LEASES_FILE}")
+    if not os.path.exists(KEA_LEASES_FILE):
+        print(f"❌ Error: Kea DHCP leases file not found: {KEA_LEASES_FILE}")
         return None
 
-    with open(LEASES_FILE, "r") as leases:
-        current_ip = None
-        current_mac = None
-        current_hostname = None
+    with open(KEA_LEASES_FILE, "r") as leases_file:
+        csv_reader = csv.reader(leases_file)
+        headers = next(csv_reader, None)  # ✅ Read header row
+        
+        if not headers or "address" not in headers or "hwaddr" not in headers:
+            print("❌ Error: Kea lease file format is invalid.")
+            return None
 
-        for line in leases:
-            line = line.strip()
+        # ✅ Get column indexes dynamically
+        address_idx = headers.index("address")
+        hwaddr_idx = headers.index("hwaddr")
 
-            if line.startswith("lease "):  
-                current_ip = line.split()[1]  
-            elif "hardware ethernet" in line:
-                current_mac = line.split()[-1].strip(";").lower()
-            elif "client-hostname" in line:
-                current_hostname = line.split()[-1].strip('";')
+        for row in csv_reader:
+            if len(row) < max(address_idx, hwaddr_idx) + 1:
+                continue
 
-            if current_ip and current_mac:  
-                vendor = detect_vendor(current_mac)
-                if vendor not in inventory:
-                    inventory[vendor] = []
-                inventory[vendor].append(f"{current_ip} ansible_user=admin ansible_password=admin")
+            current_ip = row[address_idx].strip()
+            current_mac = row[hwaddr_idx].strip().lower().replace("-", ":")  # ✅ Normalize MAC address
 
-                print(f"🔍 Lease Found: {current_mac.upper()} → {current_ip} (Hostname: {current_hostname})")
-                found_leases = True
+            if not current_ip or not current_mac or current_ip == ROUTER_IP:
+                continue  # ✅ Skip invalid or router IPs
 
-                current_ip, current_mac, current_hostname = None, None, None  
+            if current_mac in mac_ip_map:  # ✅ Prevent duplicate assignments
+                continue
 
-    return inventory if found_leases else None
+            mac_ip_map[current_mac] = current_ip
+            vendor = detect_vendor(current_mac)
+
+            if vendor not in inventory:
+                inventory[vendor] = []
+
+            inventory[vendor].append(f"{current_ip} ansible_user=admin ansible_password=admin")
+            print(f"🔍 Lease Found: {current_mac.upper()} → {current_ip}")
+
+    return inventory
 
 def generate_inventory():
-    """ Generate the Ansible inventory with retries """
-    attempts = 5
-    delay = 10  
+    """Generate the Ansible inventory from Kea leases."""
+    inventory = parse_kea_leases()
 
-    for attempt in range(1, attempts + 1):
-        print(f"🚀 Attempting to generate inventory (Try {attempt}/{attempts})...")
+    if inventory:
+        with open(INVENTORY_FILE, "w") as inv_file:
+            for vendor, devices in inventory.items():
+                inv_file.write(f"[{vendor}]\n")
+                for entry in devices:
+                    inv_file.write(f"{entry}\n")
+                inv_file.write("\n")
 
-        inventory = parse_leases()
-
-        if inventory:
-            with open(INVENTORY_FILE, "w") as inv_file:
-                for vendor, devices in inventory.items():
-                    inv_file.write(f"[{vendor}]\n")
-                    for entry in devices:
-                        inv_file.write(f"{entry}\n")
-                    inv_file.write("\n")
-
-            print("✅ Ansible inventory generated successfully!")
-            return  
-
-        print(f"⏳ No valid DHCP leases found, retrying in {delay} sec... (Attempt {attempt}/{attempts})")
-        time.sleep(delay)
-
-    print("❌ No valid DHCP leases found after retries. Inventory not updated.")
+        print("✅ Ansible inventory generated successfully!")
+    else:
+        print("❌ No valid DHCP leases found. Inventory not updated.")
 
 if __name__ == "__main__":
     generate_inventory()
