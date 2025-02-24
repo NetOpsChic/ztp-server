@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-
 import csv
-import subprocess
 import os
+import subprocess
 
-KEA_LEASES_FILE = "/var/lib/kea/kea-leases4.csv"  # Correct lease file location
+KEA_LEASES_FILE = "/var/lib/kea/kea-leases4.csv"
 LOG_FILE = "/var/log/ztp.log"
 
 VENDOR_LOOKUP = {
@@ -13,63 +12,70 @@ VENDOR_LOOKUP = {
     "00:1B:21": "juniper"   # Juniper MAC prefix
 }
 
+CONFIG_MAP = {
+    "arista": "startup-configs/arista_eos.conf",
+    "cisco": "startup-configs/ios_config.txt",
+    "juniper": "startup-configs/juniper_config.conf",
+    "unknown": "default-ztp.cfg"
+}
+
 def detect_vendor(mac_address):
-    """Detect vendor based on MAC address OUI."""
+    """
+    Detect vendor based on MAC address OUI.
+    """
     for prefix, name in VENDOR_LOOKUP.items():
         if mac_address.lower().startswith(prefix.lower()):
             return name
     return "unknown"
 
-def log_ztp_assignment(mac_address, ip_address, vendor, ztp_config):
-    """Log ZTP assignment to a file."""
-    log_entry = f"MAC: {mac_address}, IP: {ip_address}, Vendor: {vendor}, Config: {ztp_config}\n"
-    with open(LOG_FILE, "a") as log_file:
-        log_file.write(log_entry)
+def parse_kea_csv():
+    """Parse Kea CSV lease file."""
+    inventory = {}
 
-def get_latest_lease():
-    """Retrieve the latest lease from Kea's lease file."""
     if not os.path.exists(KEA_LEASES_FILE):
-        print(f"❌ Error: Lease file not found: {KEA_LEASES_FILE}")
-        return None, None
+        print(f"❌ Error: Kea DHCP leases file not found: {KEA_LEASES_FILE}")
+        return None
 
-    try:
-        with open(KEA_LEASES_FILE, "r") as file:
-            reader = csv.reader(file)
-            next(reader)  # Skip header if needed
-            leases = list(reader)
+    with open(KEA_LEASES_FILE, "r") as leases_file:
+        reader = csv.reader(leases_file)
+        next(reader, None)  # Skip the header if it exists
 
-        if not leases:
-            print("❌ Error: No valid DHCP leases found.")
-            return None, None
+        for row in reader:
+            try:
+                ip_address = row[0].strip()
+                mac_address = row[1].strip()
 
-        last_lease = leases[-1]  # Get last lease entry
-        mac_address = last_lease[0]
-        ip_address = last_lease[1]
-        return mac_address, ip_address
+                if not ip_address or not mac_address:
+                    continue  # Ignore empty rows
 
-    except Exception as e:
-        print(f"❌ Error reading lease file: {str(e)}")
-        return None, None
+                vendor = detect_vendor(mac_address)
+                ztp_config = CONFIG_MAP.get(vendor, "default-ztp.cfg")  # Assign appropriate config
 
-def main():
-    mac_address, ip_address = get_latest_lease()
-    
-    if not mac_address or not ip_address:
-        print("❌ No valid DHCP lease found.")
-        return
+                if vendor not in inventory:
+                    inventory[vendor] = []
 
-    vendor = detect_vendor(mac_address)
-    ztp_config = "default-ztp.cfg"
+                inventory[vendor].append(f"{ip_address} ansible_user=admin ansible_password=admin")
+                print(f"🔍 Lease Found: {mac_address.upper()} → {ip_address}, Config: {ztp_config}")
 
-    if vendor == "arista":
-        ztp_config = "arista_eos.conf"
-    elif vendor == "cisco":
-        ztp_config = "ztp-config"
+            except IndexError:
+                print(f"⚠️ Skipping invalid row: {row}")
 
-    log_ztp_assignment(mac_address, ip_address, vendor, ztp_config)
+    return inventory
 
-    # Output assignment confirmation
-    subprocess.run(["echo", f"ZTP Config assigned: {ztp_config} for {vendor} ({ip_address})"])
+def generate_inventory():
+    """Generate Ansible inventory."""
+    inventory = parse_kea_csv()
+    if inventory:
+        with open("/ansible_inventory/hosts", "w") as inv_file:
+            for vendor, devices in inventory.items():
+                inv_file.write(f"[{vendor}]\n")
+                for entry in devices:
+                    inv_file.write(f"{entry}\n")
+                inv_file.write("\n")
+
+        print("✅ Ansible inventory generated successfully!")
+    else:
+        print("❌ No valid DHCP leases found. Inventory not updated.")
 
 if __name__ == "__main__":
-    main()
+    generate_inventory()
