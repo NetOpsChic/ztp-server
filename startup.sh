@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# ✅ Environment Variables
+# ✅ Environment Variables for manual input
+
 ZTP_IP=${ZTP_IP:-192.168.100.50}    
 SUBNET=${SUBNET:-192.168.100.0}        
 NETMASK=${NETMASK:-255.255.255.0}      
@@ -8,6 +9,17 @@ RANGE_START=${RANGE_START:-192.168.100.100}
 RANGE_END=${RANGE_END:-192.168.100.200}    
 ROUTER_IP=${ROUTER_IP:-192.168.100.1}
 DNS_SERVERS=${DNS_SERVERS:-"8.8.8.8, 8.8.4.4"}
+
+# # 🚀 Determine dynamic DHCP environment variables
+# echo "🚀 Determining network parameters..."
+# python3 /usr/local/bin/dynamic_dhcp.py > /tmp/dhcp_env.sh
+
+# echo "🚀 Sourcing dynamic environment variables from /tmp/dhcp_env.sh..."
+# . /tmp/dhcp_env.sh
+
+# The environment variables (ZTP_IP, SUBNET, NETMASK, RANGE_START, RANGE_END, ROUTER_IP, DNS_SERVERS)
+# are now set from the dynamic script output.
+# If any variable is already set, it will retain its value; otherwise, the calculated defaults will be used.
 
 # ✅ Configure Kea DHCP Server
 echo "🚀 Configuring Kea DHCP Server..."
@@ -78,7 +90,6 @@ while [ $TOTAL_WAIT -lt $MAX_WAIT_TIME ]; do
     TOTAL_WAIT=$((TOTAL_WAIT + CHECK_INTERVAL))
 done
 
-
 # ✅ Generate Ansible inventory with retries
 for attempt in {1..3}; do
     echo "🚀 Generating Ansible inventory (Attempt $attempt/3)..."
@@ -95,6 +106,10 @@ for attempt in {1..3}; do
     echo "⏳ Inventory not valid yet. Retrying in 5 seconds..."
     sleep 5
 done
+
+# ✅ Start API Server
+echo "🚀 Starting API server..."
+python3 /usr/local/bin/api.py &
 
 echo "✅ ZTP Server is running!"
 

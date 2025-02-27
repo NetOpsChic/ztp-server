@@ -8,14 +8,18 @@ LOG_FILE = "/var/log/ztp.log"
 
 VENDOR_LOOKUP = {
     "00:1C:73": "arista",   # Arista MAC prefix
+    "0C:DD:0F": "arista",   # Additional Arista MAC prefix
     "00:1A:1E": "cisco",    # Cisco MAC prefix
-    "00:1B:21": "juniper"   # Juniper MAC prefix
+    "00:1B:21": "juniper",  # Juniper MAC prefix
+    "AA:BB:CC": "hp"        # HP MAC prefix
 }
+
 
 CONFIG_MAP = {
     "arista": "startup-configs/arista_eos.conf",
     "cisco": "startup-configs/ios_config.txt",
     "juniper": "startup-configs/juniper_config.conf",
+    "hp": "startup-configs/hp_config.conf",  # Optionally add a corresponding config
     "unknown": "default-ztp.cfg"
 }
 
@@ -43,8 +47,12 @@ def parse_kea_csv():
         for row in reader:
             try:
                 ip_address = row[0].strip()
-                mac_address = row[1].strip()
-
+                # Normalize the MAC address (replace hyphens with colons)
+                mac_address = row[1].strip().replace('-', ':')
+                
+                # Debug output to check MAC format
+                print(f"DEBUG: Processed MAC address: '{mac_address}'")
+                
                 if not ip_address or not mac_address:
                     continue  # Ignore empty rows
 
