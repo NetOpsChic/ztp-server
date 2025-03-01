@@ -7,17 +7,18 @@ ENV INVENTORY_DIR=/ansible_inventory
 ENV TFTP_DIR=/var/lib/tftpboot
 
 # Default Environment Variables for Dynamic Configuration
-ENV ZTP_IP=192.168.100.50
+ENV ZTP_IP=192.168.100.2
 ENV SUBNET=192.168.100.0
 ENV NETMASK=255.255.255.0
-ENV RANGE_START=192.168.100.100
-ENV RANGE_END=192.168.100.200
-ENV ROUTER_IP=192.168.100.1
+ENV RANGE_START=192.168.100.3
+ENV RANGE_END=192.168.100.254
+ENV ROUTER_IP=192.168.100.2
 ENV DNS_SERVERS="8.8.8.8, 8.8.4.4"
 
 # Install required packages
 RUN apt update && apt install -y \
     kea-dhcp4-server \
+    ufw \
     tftpd-hpa \
     nginx \
     python3 \
@@ -44,7 +45,6 @@ RUN mkdir -p /etc/kea  # Ensure /etc/kea exists
 COPY vendor_detect.py /usr/local/bin/vendor_detect.py
 COPY generate_inventory.py /usr/local/bin/generate_inventory.py
 COPY startup.sh /usr/local/bin/startup.sh
-COPY dynamic_dhcp.py /usr/local/bin/dynamic_dhcp.py
 
 # Copy Arista, Cisco, and Juniper configuration files
 COPY startup-configs/arista_eos.conf ${TFTP_DIR}/arista_eos.conf
@@ -55,7 +55,7 @@ COPY startup-configs/juniper_config.conf ${TFTP_DIR}/juniper_config.conf
 COPY kea-dhcp4.conf /etc/kea/kea-dhcp4.conf  
 
 # Set execute permissions
-RUN chmod +x /usr/local/bin/vendor_detect.py /usr/local/bin/generate_inventory.py /usr/local/bin/startup.sh /usr/local/bin/dynamic_dhcp.py
+RUN chmod +x /usr/local/bin/vendor_detect.py /usr/local/bin/generate_inventory.py /usr/local/bin/startup.sh
 RUN chmod 644 ${TFTP_DIR}/arista_eos.conf ${TFTP_DIR}/ios_config.txt ${TFTP_DIR}/juniper_config.conf /etc/kea/kea-dhcp4.conf  
 
 # Ensure TFTP to run in foreground mode
@@ -63,7 +63,7 @@ RUN echo 'TFTP_DIRECTORY="/var/lib/tftpboot"' > /etc/default/tftpd-hpa && \
     echo 'TFTP_OPTIONS="--secure --create --foreground"' >> /etc/default/tftpd-hpa
 
 # Expose required ports
-EXPOSE 67/udp 69/udp 80/tcp
+EXPOSE 67/udp 69/udp 80/tcp 5000/tcp
 
 # Create a volume for Ansible inventory
 VOLUME ["/ansible_inventory"]
@@ -75,8 +75,7 @@ VOLUME ["/ansible_inventory"]
 # Copy API server file (api.py) into the container
 COPY api.py /usr/local/bin/api.py
 
-# Expose the API port
-EXPOSE 5000/tcp
+RUN ufw allow 5000/tcp || true
 
 # ---------------------
 # API additions end

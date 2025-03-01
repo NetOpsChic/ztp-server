@@ -2,24 +2,13 @@
 
 # ✅ Environment Variables for manual input
 
-ZTP_IP=${ZTP_IP:-192.168.100.50}    
+ZTP_IP=${ZTP_IP:-192.168.100.2}    
 SUBNET=${SUBNET:-192.168.100.0}        
 NETMASK=${NETMASK:-255.255.255.0}      
-RANGE_START=${RANGE_START:-192.168.100.100}  
-RANGE_END=${RANGE_END:-192.168.100.200}    
-ROUTER_IP=${ROUTER_IP:-192.168.100.1}
+RANGE_START=${RANGE_START:-192.168.100.3}  
+RANGE_END=${RANGE_END:-192.168.100.254}    
+ROUTER_IP=${ROUTER_IP:-192.168.100.2}
 DNS_SERVERS=${DNS_SERVERS:-"8.8.8.8, 8.8.4.4"}
-
-# # 🚀 Determine dynamic DHCP environment variables
-# echo "🚀 Determining network parameters..."
-# python3 /usr/local/bin/dynamic_dhcp.py > /tmp/dhcp_env.sh
-
-# echo "🚀 Sourcing dynamic environment variables from /tmp/dhcp_env.sh..."
-# . /tmp/dhcp_env.sh
-
-# The environment variables (ZTP_IP, SUBNET, NETMASK, RANGE_START, RANGE_END, ROUTER_IP, DNS_SERVERS)
-# are now set from the dynamic script output.
-# If any variable is already set, it will retain its value; otherwise, the calculated defaults will be used.
 
 # ✅ Configure Kea DHCP Server
 echo "🚀 Configuring Kea DHCP Server..."
@@ -36,11 +25,20 @@ echo "🚀 Assigning static IP to eth0 - ZTP IP: $ZTP_IP/24"
 ip addr add "$ZTP_IP/24" dev eth0 || echo "⚠️ Failed to assign static IP"
 ip link set eth0 up
 
+# ✅ Enable firewall rule for port 5000 (UFW)
+if command -v ufw >/dev/null 2>&1; then
+  echo "🚀 Allowing inbound TCP on port 5000 via UFW..."
+  ufw enable || echo "⚠️ Failed to enable UFW"
+  ufw allow 5000/tcp || echo "⚠️ Failed to add UFW rule for 5000/tcp"
+  # You might also want ufw enable, but be cautious about enabling UFW blindly if it isn't enabled
+else
+  echo "⚠️ UFW not found, skipping firewall rule for port 5000."
+fi
+
 # ✅ Ensure required directories for Kea logs and PID files exist
 echo "🚀 Ensuring Kea runtime directories exist..."
 mkdir -p /var/run/kea /run/kea /var/log/kea /var/lib/kea
 chmod 755 /var/run/kea /run/kea /var/log/kea /var/lib/kea
-chown -R kea:kea /var/run/kea /run/kea /var/log/kea /var/lib/kea
 
 # ✅ Ensure Kea lease file exists before starting
 LEASE_FILE="/var/lib/kea/kea-leases4.csv"

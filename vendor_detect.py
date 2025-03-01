@@ -10,6 +10,7 @@ VENDOR_LOOKUP = {
     "00:1C:73": "arista",   # Arista MAC prefix
     "0C:DD:0F": "arista",   # Additional Arista MAC prefix
     "00:1A:1E": "cisco",    # Cisco MAC prefix
+    "CA:01:72": "cisco",
     "00:1B:21": "juniper",  # Juniper MAC prefix
     "AA:BB:CC": "hp"        # HP MAC prefix
 }
