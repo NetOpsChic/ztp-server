@@ -1,90 +1,116 @@
 #!/usr/bin/env python3
 import csv
 import os
-import subprocess
 
-KEA_LEASES_FILE = "/var/lib/kea/kea-leases4.csv"
-LOG_FILE = "/var/log/ztp.log"
+# Path to the local IEEE OUI file (downloaded manually)
+OUI_FILE = "/usr/local/etc/oui.txt"
 
-VENDOR_LOOKUP = {
-    "00:1C:73": "arista",   # Arista MAC prefix
-    "0C:DD:0F": "arista",   # Additional Arista MAC prefix
-    "00:1A:1E": "cisco",    # Cisco MAC prefix
-    "CA:01:72": "cisco",
-    "00:1B:21": "juniper",  # Juniper MAC prefix
-    "AA:BB:CC": "hp"        # HP MAC prefix
+def load_oui_mapping(oui_file):
+    """
+    Load the OUI mapping from a local file.
+    Expected lines contain a prefix and "(hex)" or "(base 16)" such as:
+      FC-59-C0   (hex)            Arista Networks
+    This function converts the prefix to a colon-separated string.
+    """
+    mapping = {}
+    if not os.path.exists(oui_file):
+        print(f"Warning: OUI file not found: {oui_file}")
+        return mapping
+
+    with open(oui_file, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            if "(hex)" in line or "(base 16)" in line:
+                parts = line.split("(hex)")
+                if len(parts) < 2:
+                    parts = line.split("(base 16)")
+                if len(parts) == 2:
+                    prefix = parts[0].strip().replace('-', ':').lower()
+                    vendor = parts[1].strip()
+                    mapping[prefix] = vendor
+    return mapping
+
+# Build the OUI mapping from the offline file.
+OUI_MAPPING = load_oui_mapping(OUI_FILE)
+
+# CUSTOM_VENDOR_MAP: Add known OUIs that the IEEE file may not contain.
+CUSTOM_VENDOR_MAP = {
+    "0c:34:d1": "Arista"
 }
 
-
-CONFIG_MAP = {
-    "arista": "startup-configs/arista_eos.conf",
-    "cisco": "startup-configs/ios_config.txt",
-    "juniper": "startup-configs/juniper_config.conf",
-    "hp": "startup-configs/hp_config.conf",  # Optionally add a corresponding config
-    "unknown": "default-ztp.cfg"
-}
-
-def detect_vendor(mac_address):
+def get_vendor_from_mac(mac):
     """
-    Detect vendor based on MAC address OUI.
+    Extract the OUI (first three octets) from the MAC address and return
+    the vendor name. Custom mapping is checked first.
     """
-    for prefix, name in VENDOR_LOOKUP.items():
-        if mac_address.lower().startswith(prefix.lower()):
-            return name
+    parts = mac.split(':')
+    if len(parts) < 3:
+        return "unknown"
+    oui = ":".join(parts[:3]).lower()
+    if oui in CUSTOM_VENDOR_MAP:
+        return CUSTOM_VENDOR_MAP[oui]
+    return OUI_MAPPING.get(oui, "unknown")
+
+def detect_vendor(client_id, hwaddr=""):
+    """
+    Detect the vendor based on the DHCP Option 60 (client_id).
+    If client_id is empty or invalid and a hardware address is provided,
+    it falls back to using the hardware address for vendor lookup.
+    
+    - If client_id is a standard MAC address (6 groups), an OUI lookup is performed.
+    - If it’s a longer (hex-encoded) string, an attempt is made to decode it;
+      if that fails, the first 6 groups are used as a fallback.
+    """
+    client_id = client_id.strip()
+    # Fallback to hwaddr if client_id is empty or does not contain a colon.
+    if not client_id or ":" not in client_id:
+        if hwaddr:
+            print("DEBUG: client_id empty or invalid, falling back to hwaddr.")
+            return get_vendor_from_mac(hwaddr.strip())
+        return "unknown"
+
+    parts = client_id.split(":")
+    if len(parts) == 6:
+        mac = ":".join(parts).lower()
+        vendor = get_vendor_from_mac(mac)
+        print(f"DEBUG: Detected vendor from MAC {mac}: {vendor}")
+        return vendor
+    elif len(parts) > 6:
+        # Attempt to decode hex-encoded ASCII.
+        hex_str = "".join(parts)
+        try:
+            decoded = bytes.fromhex(hex_str).decode("utf-8", errors="ignore")
+            lower_decoded = decoded.lower()
+            if lower_decoded.startswith("arista"):
+                return "Arista"
+            elif lower_decoded.startswith("cisco"):
+                return "Cisco"
+            elif lower_decoded.startswith("juniper"):
+                return "Juniper"
+        except Exception as e:
+            print(f"DEBUG: Exception decoding hex: {e}")
+        # Fallback: use the first 6 groups.
+        mac = ":".join(parts[:6]).lower()
+        vendor = get_vendor_from_mac(mac)
+        print(f"DEBUG: Fallback detected vendor from MAC {mac}: {vendor}")
+        return vendor
     return "unknown"
 
-def parse_kea_csv():
-    """Parse Kea CSV lease file."""
-    inventory = {}
-
-    if not os.path.exists(KEA_LEASES_FILE):
-        print(f"❌ Error: Kea DHCP leases file not found: {KEA_LEASES_FILE}")
-        return None
-
-    with open(KEA_LEASES_FILE, "r") as leases_file:
-        reader = csv.reader(leases_file)
-        next(reader, None)  # Skip the header if it exists
-
-        for row in reader:
-            try:
-                ip_address = row[0].strip()
-                # Normalize the MAC address (replace hyphens with colons)
-                mac_address = row[1].strip().replace('-', ':')
-                
-                # Debug output to check MAC format
-                print(f"DEBUG: Processed MAC address: '{mac_address}'")
-                
-                if not ip_address or not mac_address:
-                    continue  # Ignore empty rows
-
-                vendor = detect_vendor(mac_address)
-                ztp_config = CONFIG_MAP.get(vendor, "default-ztp.cfg")  # Assign appropriate config
-
-                if vendor not in inventory:
-                    inventory[vendor] = []
-
-                inventory[vendor].append(f"{ip_address} ansible_user=admin ansible_password=admin")
-                print(f"🔍 Lease Found: {mac_address.upper()} → {ip_address}, Config: {ztp_config}")
-
-            except IndexError:
-                print(f"⚠️ Skipping invalid row: {row}")
-
-    return inventory
-
-def generate_inventory():
-    """Generate Ansible inventory."""
-    inventory = parse_kea_csv()
-    if inventory:
-        with open("/ansible_inventory/hosts", "w") as inv_file:
-            for vendor, devices in inventory.items():
-                inv_file.write(f"[{vendor}]\n")
-                for entry in devices:
-                    inv_file.write(f"{entry}\n")
-                inv_file.write("\n")
-
-        print("✅ Ansible inventory generated successfully!")
-    else:
-        print("❌ No valid DHCP leases found. Inventory not updated.")
-
 if __name__ == "__main__":
-    generate_inventory()
+    # For testing: parse a Kea lease CSV and print vendor detection.
+    KEA_LEASES_FILE = "/var/lib/kea/kea-leases4.csv"
+    if not os.path.exists(KEA_LEASES_FILE):
+        print(f"Error: Kea DHCP leases file not found: {KEA_LEASES_FILE}")
+    else:
+        with open(KEA_LEASES_FILE, "r") as leases_file:
+            reader = csv.DictReader(leases_file)
+            if not reader.fieldnames:
+                print("Error: Lease file is empty or has an invalid format.")
+            else:
+                for row in reader:
+                    ip_address = row.get("address", "").strip()
+                    client_id = row.get("client_id", "").strip()
+                    hwaddr = row.get("hwaddr", "").strip()  # Fallback hardware MAC
+                    if not ip_address:
+                        continue
+                    vendor_name = detect_vendor(client_id, hwaddr)
+                    print(f"Detected Vendor: {vendor_name} (IP: {ip_address}) - Client ID: {client_id}")

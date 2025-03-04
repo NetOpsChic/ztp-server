@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# ✅ Environment Variables for manual input
-
+# ✅ Environment Variables
 ZTP_IP=${ZTP_IP:-192.168.100.2}    
 SUBNET=${SUBNET:-192.168.100.0}        
 NETMASK=${NETMASK:-255.255.255.0}      
@@ -10,32 +9,22 @@ RANGE_END=${RANGE_END:-192.168.100.254}
 ROUTER_IP=${ROUTER_IP:-192.168.100.2}
 DNS_SERVERS=${DNS_SERVERS:-"8.8.8.8, 8.8.4.4"}
 
-# ✅ Configure Kea DHCP Server
+# ✅ Update Kea DHCP Configuration
 echo "🚀 Configuring Kea DHCP Server..."
-sed -i "s|{{SUBNET}}|$SUBNET|g" /etc/kea/kea-dhcp4.conf
-sed -i "s|{{NETMASK}}|$NETMASK|g" /etc/kea/kea-dhcp4.conf
-sed -i "s|{{RANGE_START}}|$RANGE_START|g" /etc/kea/kea-dhcp4.conf
-sed -i "s|{{RANGE_END}}|$RANGE_END|g" /etc/kea/kea-dhcp4.conf
-sed -i "s|{{ZTP_IP}}|$ZTP_IP|g" /etc/kea/kea-dhcp4.conf
-sed -i "s|{{ROUTER_IP}}|$ROUTER_IP|g" /etc/kea/kea-dhcp4.conf
-sed -i "s|{{DNS_SERVERS}}|$DNS_SERVERS|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${SUBNET}|$SUBNET|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${NETMASK}|$NETMASK|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${RANGE_START}|$RANGE_START|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${RANGE_END}|$RANGE_END|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${ZTP_IP}|$ZTP_IP|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${ROUTER_IP}|$ROUTER_IP|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${DNS_SERVERS}|$DNS_SERVERS|g" /etc/kea/kea-dhcp4.conf
 
 # ✅ Assign static IP to eth0
 echo "🚀 Assigning static IP to eth0 - ZTP IP: $ZTP_IP/24"
 ip addr add "$ZTP_IP/24" dev eth0 || echo "⚠️ Failed to assign static IP"
 ip link set eth0 up
 
-# ✅ Enable firewall rule for port 5000 (UFW)
-if command -v ufw >/dev/null 2>&1; then
-  echo "🚀 Allowing inbound TCP on port 5000 via UFW..."
-  ufw enable || echo "⚠️ Failed to enable UFW"
-  ufw allow 5000/tcp || echo "⚠️ Failed to add UFW rule for 5000/tcp"
-  # You might also want ufw enable, but be cautious about enabling UFW blindly if it isn't enabled
-else
-  echo "⚠️ UFW not found, skipping firewall rule for port 5000."
-fi
-
-# ✅ Ensure required directories for Kea logs and PID files exist
+# ✅ Ensure Kea runtime directories exist
 echo "🚀 Ensuring Kea runtime directories exist..."
 mkdir -p /var/run/kea /run/kea /var/log/kea /var/lib/kea
 chmod 755 /var/run/kea /run/kea /var/log/kea /var/lib/kea
@@ -46,7 +35,8 @@ echo "🚀 Ensuring Kea lease file exists: $LEASE_FILE"
 touch "$LEASE_FILE"
 chmod 644 "$LEASE_FILE"
 
-echo "🚀 Starting Kea DHCP Server in the background..."
+# ✅ Start Kea DHCP Server
+echo "🚀 Starting Kea DHCP Server..."
 kea-dhcp4 -c /etc/kea/kea-dhcp4.conf > /var/log/kea/kea-dhcp4.log 2>&1 &
 sleep 2  # Give Kea some time to initialize
 
@@ -77,7 +67,8 @@ while [ $TOTAL_WAIT -lt $MAX_WAIT_TIME ]; do
     if grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" /var/lib/kea/kea-leases4.csv; then
         echo "✅ Active DHCP lease found! Proceeding with vendor detection."
 
-        # ✅ Run vendor detection script for ZTP assignments
+        # ✅ Run vendor.py for additional vendor processing
+        echo "🚀 Running Vendor Processing Script..."
         python3 /usr/local/bin/vendor_detect.py
 
         break

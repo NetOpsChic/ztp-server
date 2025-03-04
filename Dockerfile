@@ -42,6 +42,7 @@ RUN mkdir -p ${TFTP_DIR} && chmod 777 ${TFTP_DIR}
 RUN mkdir -p /etc/kea  # Ensure /etc/kea exists
 
 # Copy necessary configuration files and scripts
+COPY router-db/oui.txt /usr/local/etc/oui.txt
 COPY vendor_detect.py /usr/local/bin/vendor_detect.py
 COPY generate_inventory.py /usr/local/bin/generate_inventory.py
 COPY startup.sh /usr/local/bin/startup.sh
