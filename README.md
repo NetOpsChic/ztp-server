@@ -42,6 +42,12 @@ Ensure the following are installed on your system before running the ZTP server:
 ### Environment Variables
 You can override the default settings using environment variables:
 
+In order to find your values simple run
+```sh
+   python3 dynamic_dhcp.py
+   ```
+
+The values generated can be replace by the values in startup.sh 
 | Variable | Description | Default Value |
 |----------|-------------|---------------|
 | `ZTP_IP` | IP address of the ZTP server | `192.168.100.50` |

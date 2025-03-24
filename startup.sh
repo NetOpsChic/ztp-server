@@ -1,13 +1,15 @@
 #!/bin/bash
 
-# ✅ Environment Variables
-ZTP_IP=${ZTP_IP:-192.168.100.2}    
-SUBNET=${SUBNET:-192.168.100.0}        
+# ✅ Environment Variables for manual input
+
+ZTP_IP=${ZTP_IP:-192.168.122.2}    
+SUBNET=${SUBNET:-192.168.122.0}        
 NETMASK=${NETMASK:-255.255.255.0}      
-RANGE_START=${RANGE_START:-192.168.100.3}  
-RANGE_END=${RANGE_END:-192.168.100.254}    
-ROUTER_IP=${ROUTER_IP:-192.168.100.2}
+RANGE_START=${RANGE_START:-192.168.122.4}  
+RANGE_END=${RANGE_END:-192.168.122.254}    
+ROUTER_IP=${ROUTER_IP:-192.168.122.3}
 DNS_SERVERS=${DNS_SERVERS:-"8.8.8.8, 8.8.4.4"}
+BROADCAST_IP=${BROADCAST_IP:-192.168.122.255}
 
 # ✅ Update Kea DHCP Configuration
 echo "🚀 Configuring Kea DHCP Server..."
@@ -18,13 +20,14 @@ sed -i "s|\${RANGE_END}|$RANGE_END|g" /etc/kea/kea-dhcp4.conf
 sed -i "s|\${ZTP_IP}|$ZTP_IP|g" /etc/kea/kea-dhcp4.conf
 sed -i "s|\${ROUTER_IP}|$ROUTER_IP|g" /etc/kea/kea-dhcp4.conf
 sed -i "s|\${DNS_SERVERS}|$DNS_SERVERS|g" /etc/kea/kea-dhcp4.conf
+sed -i "s|\${BROADCAST_IP}|$BROADCAST_IP|g" /etc/kea/kea-dhcp4.conf
 
 # ✅ Assign static IP to eth0
 echo "🚀 Assigning static IP to eth0 - ZTP IP: $ZTP_IP/24"
 ip addr add "$ZTP_IP/24" dev eth0 || echo "⚠️ Failed to assign static IP"
 ip link set eth0 up
 
-# ✅ Ensure Kea runtime directories exist
+# ✅ Ensure required directories for Kea logs and PID files exist
 echo "🚀 Ensuring Kea runtime directories exist..."
 mkdir -p /var/run/kea /run/kea /var/log/kea /var/lib/kea
 chmod 755 /var/run/kea /run/kea /var/log/kea /var/lib/kea
@@ -35,8 +38,7 @@ echo "🚀 Ensuring Kea lease file exists: $LEASE_FILE"
 touch "$LEASE_FILE"
 chmod 644 "$LEASE_FILE"
 
-# ✅ Start Kea DHCP Server
-echo "🚀 Starting Kea DHCP Server..."
+echo "🚀 Starting Kea DHCP Server in the background..."
 kea-dhcp4 -c /etc/kea/kea-dhcp4.conf > /var/log/kea/kea-dhcp4.log 2>&1 &
 sleep 2  # Give Kea some time to initialize
 
@@ -67,8 +69,7 @@ while [ $TOTAL_WAIT -lt $MAX_WAIT_TIME ]; do
     if grep -qE "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" /var/lib/kea/kea-leases4.csv; then
         echo "✅ Active DHCP lease found! Proceeding with vendor detection."
 
-        # ✅ Run vendor.py for additional vendor processing
-        echo "🚀 Running Vendor Processing Script..."
+        # ✅ Run vendor detection script for ZTP assignments
         python3 /usr/local/bin/vendor_detect.py
 
         break

@@ -6,15 +6,6 @@ ENV LEASES_FILE=/var/lib/kea/dhcp4.leases
 ENV INVENTORY_DIR=/ansible_inventory
 ENV TFTP_DIR=/var/lib/tftpboot
 
-# Default Environment Variables for Dynamic Configuration
-ENV ZTP_IP=192.168.100.2
-ENV SUBNET=192.168.100.0
-ENV NETMASK=255.255.255.0
-ENV RANGE_START=192.168.100.3
-ENV RANGE_END=192.168.100.254
-ENV ROUTER_IP=192.168.100.2
-ENV DNS_SERVERS="8.8.8.8, 8.8.4.4"
-
 # Install required packages
 RUN apt update && apt install -y \
     kea-dhcp4-server \
@@ -46,6 +37,7 @@ COPY router-db/oui.txt /usr/local/etc/oui.txt
 COPY vendor_detect.py /usr/local/bin/vendor_detect.py
 COPY generate_inventory.py /usr/local/bin/generate_inventory.py
 COPY startup.sh /usr/local/bin/startup.sh
+COPY dynamic_dhcp.py /usr/local/bin/dynamic_dhcp.py
 
 # Copy Arista, Cisco, and Juniper configuration files
 COPY startup-configs/arista_eos.conf ${TFTP_DIR}/arista_eos.conf
