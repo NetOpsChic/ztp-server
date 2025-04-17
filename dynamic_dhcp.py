@@ -29,7 +29,7 @@ def calculate_network_params(ip, netmask):
 
 def main():
     # Use the virbr0 interface explicitly
-    interface = "virbr0"
+    interface = "br0"
     if interface not in netifaces.interfaces():
         print(f"# Error: Interface {interface} not found.")
         return

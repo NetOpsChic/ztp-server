@@ -33,8 +33,6 @@ RUN mkdir -p ${TFTP_DIR} && chmod 777 ${TFTP_DIR}
 RUN mkdir -p /etc/kea  # Ensure /etc/kea exists
 
 # Copy necessary configuration files and scripts
-COPY router-db/oui.txt /usr/local/etc/oui.txt
-COPY vendor_detect.py /usr/local/bin/vendor_detect.py
 COPY generate_inventory.py /usr/local/bin/generate_inventory.py
 COPY startup.sh /usr/local/bin/startup.sh
 COPY dynamic_dhcp.py /usr/local/bin/dynamic_dhcp.py
@@ -48,7 +46,7 @@ COPY startup-configs/juniper_config.conf ${TFTP_DIR}/juniper_config.conf
 COPY kea-dhcp4.conf /etc/kea/kea-dhcp4.conf  
 
 # Set execute permissions
-RUN chmod +x /usr/local/bin/vendor_detect.py /usr/local/bin/generate_inventory.py /usr/local/bin/startup.sh
+RUN chmod +x /usr/local/bin/generate_inventory.py /usr/local/bin/startup.sh
 RUN chmod 644 ${TFTP_DIR}/arista_eos.conf ${TFTP_DIR}/ios_config.txt ${TFTP_DIR}/juniper_config.conf /etc/kea/kea-dhcp4.conf  
 
 # Ensure TFTP to run in foreground mode
